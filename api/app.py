@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from hmac import compare_digest
-
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from config.settings import Settings
@@ -23,29 +21,14 @@ app = FastAPI(
 )
 
 _pipeline: RagPipeline | None = None
-_settings: Settings | None = None
 
 
 @app.on_event("startup")
 def startup_event() -> None:
     """Initialize pipeline once so FAISS index is loaded only at startup."""
-    global _pipeline, _settings
+    global _pipeline
     settings = Settings.from_env()
-    _settings = settings
     _pipeline = create_pipeline(settings)
-
-
-def verify_api_key(request: Request) -> None:
-    """Protect private endpoints with a static API key header."""
-    if _settings is None:
-        raise HTTPException(status_code=503, detail="Service not initialized")
-
-    if not _settings.require_api_key:
-        return
-
-    provided_key = request.headers.get(_settings.api_key_header)
-    if not provided_key or not compare_digest(provided_key, _settings.backend_api_key):
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.get("/health")
@@ -54,7 +37,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/ask", response_model=AskResponse, dependencies=[Depends(verify_api_key)])
+@app.get("/ask", response_model=AskResponse)
 def ask(q: str = Query(..., min_length=1, description="User question")) -> AskResponse:
     """Answer a user query using retrieval-augmented generation."""
     if _pipeline is None:
